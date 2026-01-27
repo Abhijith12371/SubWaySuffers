@@ -198,15 +198,32 @@ class Game {
         this.pitGeo.rotateX(-Math.PI / 2); // Lay flat
         this.pitMat = new THREE.MeshBasicMaterial({ color: 0x111111 }); // Dark Grey/Black
 
-        // Jet Pack Asset (Placeholder)
-        this.jetpackGeo = new THREE.CapsuleGeometry(0.3, 0.6, 4, 8);
-        this.jetpackMat = new THREE.MeshStandardMaterial({
-            color: 0x00ffff,
-            emissive: 0x0088ff,
-            emissiveIntensity: 0.5,
-            metalness: 0.8,
-            roughness: 0.2
-        });
+        // Jet Pack Asset (Power model)
+        try {
+            const gltf = await new Promise((resolve, reject) => {
+                gltfLoader.load('/power.glb', resolve, undefined, reject);
+            });
+            this.jetpackTemplate = gltf.scene;
+            this.jetpackTemplate.scale.set(1.5, 1.5, 1.5);
+
+            // Center the model
+            const box = new THREE.Box3().setFromObject(this.jetpackTemplate);
+            const center = box.getCenter(new THREE.Vector3());
+            this.jetpackTemplate.position.sub(center);
+
+            console.log('Power model loaded');
+        } catch (error) {
+            console.error('Error loading power model:', error);
+            // Fallback to capsule if model fails
+            this.jetpackGeo = new THREE.CapsuleGeometry(0.3, 0.6, 4, 8);
+            this.jetpackMat = new THREE.MeshStandardMaterial({
+                color: 0x00ffff,
+                emissive: 0x0088ff,
+                emissiveIntensity: 0.5,
+                metalness: 0.8,
+                roughness: 0.2
+            });
+        }
 
         try {
             const fbx = await new Promise((resolve, reject) => {
@@ -418,12 +435,21 @@ class Game {
     }
 
     spawnPowerup() {
-        // Increased spawn rate for testing (50% chance when called)
-        if (Math.random() > 0.5) return;
+        // Increased spawn rate for testing (40% chance when called)
+        if (Math.random() > 0.4) return;
 
         const lane = Math.floor(Math.random() * 3) - 1;
-        const powerup = new THREE.Mesh(this.jetpackGeo, this.jetpackMat);
-        powerup.position.set(lane * this.laneWidth, 1.5, -200);
+        let powerup;
+
+        if (this.jetpackTemplate) {
+            powerup = this.jetpackTemplate.clone();
+            powerup.position.set(lane * this.laneWidth, 1.5, -200);
+        } else {
+            // Fallback
+            powerup = new THREE.Mesh(this.jetpackGeo, this.jetpackMat);
+            powerup.position.set(lane * this.laneWidth, 1.5, -200);
+        }
+
         powerup.userData = { type: 'jetpack' };
 
         this.scene.add(powerup);
@@ -558,8 +584,9 @@ class Game {
             this.scoreElement.innerText = `Score: ${Math.floor(this.score)}`;
         }
 
-        // Difficulty increases over time
-        this.trackSpeed = 0.5 + (this.score / 1000);
+        // Difficulty increases over time (now 5x slower)
+        const targetSpeed = 0.5 + (this.score / 5000);
+        this.trackSpeed = Math.min(targetSpeed, 2.5); // Cap at 2.5 for a challenge
 
         // Move tracks backward to simulate forward movement
         if (this.spacing) {
