@@ -38,6 +38,12 @@ class Game {
         this.coins = [];
         this.collectedCoins = 0;
 
+        // Jet Pack state
+        this.isFlying = false;
+        this.jetpackTimer = 0;
+        this.flightHeight = 10;
+        this.powerups = [];
+
         this.init();
     }
 
@@ -70,11 +76,12 @@ class Game {
             });
         };
 
-        loadSound('bgm', '/music.mp3', true, 0.3);
+        loadSound('bgm', '/soundtrack.mp3', true, 0.3);
         loadSound('coin', '/coinSound.mp3', false, 0.4);
         loadSound('slide', '/sliding.mp3', false, 0.5);
         loadSound('die', '/man-scream.mp3', false, 0.6);
-        // Using slide sound for jump for now as fallback, or just silent 'whoosh'
+        loadSound('jump', '/jump.m4a', false, 0.5);
+        loadSound('flying', '/flying.m4a', true, 0.5); // Looping flight sound
     }
 
     playSound(name) {
@@ -114,6 +121,11 @@ class Game {
         if (this.player) {
             this.player.position.set(0, 0, 0);
         }
+
+        this.isFlying = false;
+        this.jetpackTimer = 0;
+        this.powerups.forEach(p => this.scene.remove(p));
+        this.powerups = [];
     }
 
     setupLights() {
@@ -182,10 +194,20 @@ class Game {
             emissiveIntensity: 0.4
         });
 
-        // Pit Trap Assets (Cached)
         this.pitGeo = new THREE.PlaneGeometry(10, 8);
         this.pitGeo.rotateX(-Math.PI / 2); // Lay flat
         this.pitMat = new THREE.MeshBasicMaterial({ color: 0x111111 }); // Dark Grey/Black
+
+        // Jet Pack Asset (Placeholder)
+        this.jetpackGeo = new THREE.CapsuleGeometry(0.3, 0.6, 4, 8);
+        this.jetpackMat = new THREE.MeshStandardMaterial({
+            color: 0x00ffff,
+            emissive: 0x0088ff,
+            emissiveIntensity: 0.5,
+            metalness: 0.8,
+            roughness: 0.2
+        });
+
         try {
             const fbx = await new Promise((resolve, reject) => {
                 fbxLoader.load('/run.fbx', resolve, undefined, reject);
@@ -213,6 +235,29 @@ class Game {
                 this.runAction.setLoop(THREE.LoopRepeat);
                 this.runAction.play();
             }
+
+            // Load Flying Animation Asset
+            const flyingFbx = await new Promise((resolve, reject) => {
+                fbxLoader.load('/Flying.fbx', resolve, undefined, reject);
+            });
+            if (flyingFbx.animations && flyingFbx.animations.length > 0) {
+                const clip = flyingFbx.animations[0];
+
+                // Track Path Fix: Ensure animation tracks match the player's bone hierarchy
+                // Sometimes FBX animations include the root node name which prevents playback on a different model
+                clip.tracks.forEach(track => {
+                    // If track is "SomeRoot/Hips.position", change to "Hips.position"
+                    const nameParts = track.name.split('.');
+                    const pathParts = nameParts[0].split('/');
+                    if (pathParts.length > 1) {
+                        track.name = pathParts[pathParts.length - 1] + '.' + nameParts[1];
+                    }
+                });
+
+                this.flyAction = this.mixer.clipAction(clip);
+                this.flyAction.setLoop(THREE.LoopRepeat);
+            }
+
         } catch (error) {
             console.error('Error loading player:', error);
         }
@@ -350,23 +395,39 @@ class Game {
     }
 
     spawnCoins() {
-        // 30% chance to spawn a coin group instead of nothing (separate from obstacles)
-        if (Math.random() > 0.3) return;
+        // Higher spawn rate when flying (80% vs 30%)
+        const spawnChance = this.isFlying ? 0.8 : 0.3;
+        if (Math.random() > spawnChance) return;
 
         const lane = Math.floor(Math.random() * 3) - 1;
         const zStart = -200;
 
-        // Spawn a line of 3-5 coins
-        const count = 3 + Math.floor(Math.random() * 3);
-        const yPos = Math.random() > 0.5 ? 1.0 : 3.5; // Ground or Air (jump to collect)
+        // Spawn a line of 3-5 coins (or more when flying for trails)
+        const count = (this.isFlying ? 8 : 3) + Math.floor(Math.random() * 3);
+        const yPos = this.isFlying ? this.flightHeight : (Math.random() > 0.5 ? 1.0 : 3.5);
 
         for (let i = 0; i < count; i++) {
             const coin = new THREE.Mesh(this.coinGeo, this.coinMat);
-            coin.position.set(lane * this.laneWidth, yPos, zStart - (i * 3));
+            // Zig-zag pattern if flying
+            const xOffset = this.isFlying ? Math.sin(i * 0.5) * 2 : 0;
+            coin.position.set(lane * this.laneWidth + xOffset, yPos, zStart - (i * 3));
 
             this.scene.add(coin);
             this.coins.push(coin);
         }
+    }
+
+    spawnPowerup() {
+        // Increased spawn rate for testing (50% chance when called)
+        if (Math.random() > 0.5) return;
+
+        const lane = Math.floor(Math.random() * 3) - 1;
+        const powerup = new THREE.Mesh(this.jetpackGeo, this.jetpackMat);
+        powerup.position.set(lane * this.laneWidth, 1.5, -200);
+        powerup.userData = { type: 'jetpack' };
+
+        this.scene.add(powerup);
+        this.powerups.push(powerup);
     }
 
     checkCollisions() {
@@ -436,7 +497,7 @@ class Game {
             } else if ((e.key === 'ArrowUp' || e.key === 'w' || e.key === ' ') && !this.isJumping && !this.isSliding) {
                 this.isJumping = true;
                 this.jumpVelocity = 0.7;
-                // No jump sound yet, maybe custom?
+                this.playSound('jump');
             } else if ((e.key === 'ArrowDown' || e.key === 's') && !this.isJumping && !this.isSliding) {
                 this.isSliding = true;
                 this.slideTimer = this.slideDuration;
@@ -466,6 +527,23 @@ class Game {
                 // fast speed 1.5 -> timeScale 1.4
                 const targetScale = 0.5 + this.trackSpeed * 0.8;
                 this.runAction.timeScale = Math.min(targetScale, 1.5);
+            }
+
+            // Animation Switching Logic
+            if (this.isFlying) {
+                if (this.flyAction && !this.flyAction.isRunning()) {
+                    if (this.runAction) this.runAction.fadeOut(0.3);
+                    this.flyAction.reset().fadeIn(0.3).play();
+                }
+                // Tilt character forward for horizontal flight
+                this.player.rotation.x = THREE.MathUtils.lerp(this.player.rotation.x, -Math.PI / 2.2, 0.1);
+            } else {
+                if (this.runAction && !this.runAction.isRunning()) {
+                    if (this.flyAction) this.flyAction.fadeOut(0.3);
+                    this.runAction.reset().fadeIn(0.3).play();
+                }
+                // Return to vertical
+                this.player.rotation.x = THREE.MathUtils.lerp(this.player.rotation.x, 0, 0.1);
             }
 
             // PIXEL FIX: Pin Hips bone to prevent root motion "stutter/restart"
@@ -498,7 +576,37 @@ class Game {
         if (this.spawnTimer > 1.5 / this.trackSpeed) {
             this.spawnObstacle();
             this.spawnCoins(); // Spawn coins!
+            this.spawnPowerup(); // Spawn Powerups!
             this.spawnTimer = 0;
+        }
+
+        // Move and Collide Powerups
+        for (let i = this.powerups.length - 1; i >= 0; i--) {
+            const p = this.powerups[i];
+            p.position.z += this.trackSpeed;
+            p.rotation.y += delta * 2;
+
+            if (p.position.z > 20) {
+                this.scene.remove(p);
+                this.powerups.splice(i, 1);
+                continue;
+            }
+
+            // Collection Check
+            if (this.player && Math.abs(p.position.z - this.player.position.z) < 1.0) {
+                if (Math.abs(p.position.x - this.player.position.x) < 1.0) {
+                    if (Math.abs(p.position.y - (this.player.position.y + 1)) < 2.0) {
+                        // Activate Jet Pack!
+                        this.isFlying = true;
+                        this.jetpackTimer = 10.0;
+                        this.isJumping = false;
+                        this.isSliding = false;
+                        this.scene.remove(p);
+                        this.powerups.splice(i, 1);
+                        console.log("Jet Pack Activated!");
+                    }
+                }
+            }
         }
 
         // Move obstacles
@@ -557,7 +665,7 @@ class Game {
             }
         }
         // Jump Physics
-        if (this.isJumping) {
+        if (!this.isFlying && this.isJumping) {
             this.player.position.y += this.jumpVelocity;
             this.jumpVelocity += this.gravity;
             if (this.player.position.y <= 0) {
@@ -567,8 +675,22 @@ class Game {
             }
         }
 
+        // Jet Pack Physics
+        if (this.isFlying) {
+            this.jetpackTimer -= delta;
+            // Hover at flightHeight
+            this.player.position.y = THREE.MathUtils.lerp(this.player.position.y, this.flightHeight, 0.05);
+
+            if (this.jetpackTimer <= 0) {
+                this.isFlying = false;
+            }
+        } else if (!this.isJumping) {
+            // Drift down if not jumping
+            this.player.position.y = THREE.MathUtils.lerp(this.player.position.y, 0, 0.1);
+        }
+
         // Slide Physics
-        if (this.isSliding) {
+        if (this.isSliding && !this.isFlying) {
             this.slideTimer -= delta;
             // Procedural slide: squash the player
             this.player.scale.y = 0.0075;
@@ -585,20 +707,45 @@ class Game {
         if (this.player) {
             this.player.position.x = THREE.MathUtils.lerp(this.player.position.x, this.targetX, 0.15);
 
-            // Lock player Z position (Y is handled by jump/slide)
+            // Lock player Z position (Y is handled by physics)
             this.player.position.z = 0;
 
-            // Camera follow (Immersive: tighter follow)
+            // Adjust camera height and depth for flight or jump
+            let targetCamY = 4;
+            let targetCamZ = 8;
+
+            if (this.isFlying) {
+                // Cinematic Flight View: Higher and further back
+                targetCamY = 12;
+                targetCamZ = 12;
+
+                // Ensure sound is playing
+                if (this.sounds && this.sounds['flying'] && !this.sounds['flying'].isPlaying) {
+                    this.sounds['flying'].play();
+                }
+            } else {
+                targetCamY = 4 + (this.player.position.y > 0 ? this.player.position.y * 0.6 : 0);
+
+                // Stop flight sound if landing
+                if (this.sounds && this.sounds['flying'] && this.sounds['flying'].isPlaying) {
+                    this.sounds['flying'].stop();
+                }
+            }
+
             this.camera.position.x = THREE.MathUtils.lerp(this.camera.position.x, this.player.position.x, 0.1);
-            // Camera vertical follow for jumps (Dampened slightly to avoid motion sickness)
-            this.camera.position.y = THREE.MathUtils.lerp(this.camera.position.y, 4 + (this.player.position.y > 0 ? this.player.position.y * 0.4 : 0), 0.1);
+            this.camera.position.y = THREE.MathUtils.lerp(this.camera.position.y, targetCamY, 0.05);
+            this.camera.position.z = THREE.MathUtils.lerp(this.camera.position.z, targetCamZ, 0.05);
+
+            // Adjust camera look-at
+            const lookTargetY = 2 + (this.isFlying ? -2 : (this.player.position.y > 5 ? (this.player.position.y - 5) * 0.5 : 0));
+            this.camera.lookAt(this.player.position.x, lookTargetY, -15);
         }
 
         this.checkCollisions();
     }
 
     checkCollisions() {
-        if (!this.player) return;
+        if (!this.player || this.isFlying) return; // Invulnerable while flying!
 
         // Optimized Collision for Obstacles
         const playerY = this.player.position.y;
