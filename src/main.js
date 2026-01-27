@@ -53,10 +53,10 @@ class Game {
     async init() {
         this.setupLights();
         this.setupCamera();
+        this.setupAudio(); // Move audio setup earlier to register loader
         await this.loadAssets();
         this.setupControls();
         this.setupUI();
-        this.setupAudio(); // Add Audio Setup
         this.animate();
     }
 
@@ -64,12 +64,14 @@ class Game {
         const listener = new THREE.AudioListener();
         this.camera.add(listener);
 
-        const audioLoader = new THREE.AudioLoader();
         this.sounds = {};
+        this.listener = listener; // Store for later loading inside loadAssets
+    }
 
-        // Helper to load sound
+    // New helper to actually load the sounds using the shared manager
+    loadGameSounds(audioLoader) {
         const loadSound = (name, path, loop = false, volume = 0.5) => {
-            const sound = new THREE.Audio(listener);
+            const sound = new THREE.Audio(this.listener);
             audioLoader.load(path, (buffer) => {
                 sound.setBuffer(buffer);
                 sound.setLoop(loop);
@@ -84,7 +86,7 @@ class Game {
         loadSound('slide', 'sliding.mp3', false, 0.5);
         loadSound('die', 'man-scream.mp3', false, 0.6);
         loadSound('jump', 'jump.m4a', false, 0.5);
-        loadSound('flying', 'flying.m4a', true, 0.5); // Looping flight sound
+        loadSound('flying', 'flying.m4a', true, 0.5);
     }
 
     playSound(name) {
@@ -167,18 +169,55 @@ class Game {
 
     async loadAssets() {
         console.log('Loading assets...');
-        const gltfLoader = new GLTFLoader();
-        const fbxLoader = new FBXLoader();
-        const textureLoader = new THREE.TextureLoader();
+
+        // Setup Loading Manager
+        const loadingScreen = document.getElementById('loading-screen');
+        const progressBar = document.getElementById('progress-bar');
+        const loadInfo = document.getElementById('load-info');
+
+        const manager = new THREE.LoadingManager();
+
+        manager.onProgress = (url, itemsLoaded, itemsTotal) => {
+            const progress = (itemsLoaded / itemsTotal) * 100;
+            if (progressBar) progressBar.style.width = `${progress}%`;
+            if (loadInfo) loadInfo.innerText = `${Math.round(progress)}% - ${url.split('/').pop()}`;
+        };
+
+        manager.onLoad = () => {
+            console.log('All assets loaded successfully');
+            if (loadingScreen) {
+                loadingScreen.classList.add('hidden');
+                // Auto-show start overlay if it was hidden
+                if (this.overlay) this.overlay.classList.remove('hidden');
+            }
+        };
+
+        manager.onError = (url) => {
+            console.error('Error loading:', url);
+            // Don't block the game, just update info
+            if (loadInfo) loadInfo.innerText = `ERROR LOADING ${url.split('/').pop()}`;
+        };
+
+        const gltfLoader = new GLTFLoader(manager);
+        const fbxLoader = new FBXLoader(manager);
+        const textureLoader = new THREE.TextureLoader(manager);
+        const audioLoader = new THREE.AudioLoader(manager);
+
+        // Keep local references for audio setup
+        this.audioLoader = audioLoader;
+        this.textureLoader = textureLoader;
 
         // Load Background Image
-        textureLoader.load('bg.png', (texture) => {
+        this.textureLoader.load('bg.png', (texture) => {
             console.log('Background image loaded');
             this.scene.background = texture;
         }, undefined, (err) => {
             console.warn('Could not load bg.png, using color fallback', err);
             this.scene.background = new THREE.Color(0x87ceeb);
         });
+
+        // Load Sounds using the manager
+        this.loadGameSounds(this.audioLoader);
 
         // Pre-allocate Geometries and Materials for Performance
         this.commonBoxGeo = new THREE.BoxGeometry(2, 2.5, 1.5);

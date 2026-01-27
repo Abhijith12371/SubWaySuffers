@@ -93,6 +93,79 @@
         #start-btn:active {
             transform: translateY(-1px);
         }
+
+        /* Loading Screen Styles */
+        #loading-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            transition: opacity 0.5s ease-out;
+        }
+
+        #loading-screen.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .loader-title {
+            color: #FFD700;
+            font-size: 48px;
+            font-weight: bold;
+            margin-bottom: 30px;
+            text-shadow: 2px 2px 10px rgba(255, 215, 0, 0.4);
+            animation: pulse 2s infinite;
+        }
+
+        .progress-container {
+            width: 300px;
+            height: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        #progress-bar {
+            width: 0%;
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            box-shadow: 0 0 15px rgba(118, 75, 162, 0.8);
+            transition: width 0.3s ease-out;
+        }
+
+        .loading-text {
+            color: white;
+            font-size: 14px;
+            margin-top: 15px;
+            font-family: 'Arial', sans-serif;
+            letter-spacing: 2px;
+            opacity: 0.8;
+        }
+
+        @keyframes pulse {
+            0% {
+                transform: scale(1);
+                opacity: 0.8;
+            }
+
+            50% {
+                transform: scale(1.05);
+                opacity: 1;
+            }
+
+            100% {
+                transform: scale(1);
+                opacity: 0.8;
+            }
+        }
     </style>
 </head>
 
@@ -104,6 +177,15 @@
     <div id="coin-score"
         style="position:absolute; top:60px; left:50%; transform:translateX(-50%); color:#FFD700; font-size:24px; font-weight:bold; z-index:10; text-shadow:2px 2px 4px rgba(0,0,0,0.8);">
         Coins: 0</div>
+
+    <!-- Loading Screen -->
+    <div id="loading-screen">
+        <h2 class="loader-title">LOADING...</h2>
+        <div class="progress-container">
+            <div id="progress-bar"></div>
+        </div>
+        <div id="load-info" class="loading-text">RESOURCES 0%</div>
+    </div>
 
     <div id="overlay">
         <h1 id="title">RUNNER GAME</h1>
