@@ -658,9 +658,15 @@ class Game {
         // Mobile Touch Controls (Swipe detection)
         let touchStartX = 0;
         let touchStartY = 0;
-        const swipeThreshold = 50;
+        const swipeThreshold = 30;
 
         window.addEventListener('touchstart', (e) => {
+            // Ignore UI elements like the START button
+            if (e.target.tagName === 'BUTTON') return;
+
+            if (this.isGameStarted && !this.isGameOver) {
+                e.preventDefault();
+            }
             touchStartX = e.changedTouches[0].clientX;
             touchStartY = e.changedTouches[0].clientY;
         }, { passive: false });
@@ -672,7 +678,13 @@ class Game {
         }, { passive: false });
 
         window.addEventListener('touchend', (e) => {
-            if (this.isGameOver || !this.isGameStarted) return;
+            if (e.target.tagName === 'BUTTON') return;
+
+            if (this.isGameStarted && !this.isGameOver) {
+                e.preventDefault();
+            } else {
+                return;
+            }
 
             const touchEndX = e.changedTouches[0].clientX;
             const touchEndY = e.changedTouches[0].clientY;

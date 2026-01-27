@@ -15,6 +15,7 @@ The game is ready for deployment on **Netlify**. Connect your repository and it 
 - **Endless Procedural Track**: The world is generated dynamically as you run, with randomized scenery and obstacles.
 - **Classic Lane Movement**: Swipe or use keys to switch between three lanes.
 - **Jump & Slide**: Dodge high and low obstacles with smooth, physics-based jumping and sliding.
+- **Optimized Mobile Experience**: Advanced swipe detection and "Gesture Lock" ensure the game plays perfectly on smartphones without browser interference.
 
 ### ⚡ Power-ups & Scoring
 - **Jet Pack**: Collect the special power-up model to take to the skies! Enjoy a 10-second flight mode with custom animations and a cinematic POV.
