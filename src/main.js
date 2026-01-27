@@ -38,6 +38,9 @@ class Game {
         this.coins = [];
         this.collectedCoins = 0;
 
+        // Highscore initialization
+        this.highscore = parseInt(localStorage.getItem('subway_highscore')) || 0;
+
         // Jet Pack state
         this.isFlying = false;
         this.jetpackTimer = 0;
@@ -97,6 +100,12 @@ class Game {
         this.startBtn = document.getElementById('start-btn');
         this.title = document.getElementById('title');
         this.finalScore = document.getElementById('final-score');
+        this.bestScoreElement = document.getElementById('best-score');
+        this.highscoreUI = document.getElementById('highscore-ui');
+
+        if (this.highscoreUI) {
+            this.highscoreUI.innerText = `High: ${this.highscore}`;
+        }
 
         this.startBtn.addEventListener('click', () => {
             this.startGame();
@@ -499,9 +508,22 @@ class Game {
         this.isGameOver = true;
         this.isGameStarted = false;
 
+        // Highscore check
+        if (this.score > this.highscore) {
+            this.highscore = Math.floor(this.score);
+            localStorage.setItem('subway_highscore', this.highscore);
+            if (this.highscoreUI) this.highscoreUI.innerText = `High: ${this.highscore}`;
+        }
+
         this.title.innerText = "GAME OVER";
         this.finalScore.innerText = `Final Score: ${Math.floor(this.score)}`;
         this.finalScore.classList.remove('hidden');
+
+        if (this.bestScoreElement) {
+            this.bestScoreElement.innerText = `Best: ${this.highscore}`;
+            this.bestScoreElement.classList.remove('hidden');
+        }
+
         this.startBtn.innerText = "RESTART";
         this.overlay.classList.remove('hidden');
     }
