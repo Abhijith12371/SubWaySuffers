@@ -79,12 +79,12 @@ class Game {
             });
         };
 
-        loadSound('bgm', '/soundtrack.mp3', true, 0.3);
-        loadSound('coin', '/coinSound.mp3', false, 0.4);
-        loadSound('slide', '/sliding.mp3', false, 0.5);
-        loadSound('die', '/man-scream.mp3', false, 0.6);
-        loadSound('jump', '/jump.m4a', false, 0.5);
-        loadSound('flying', '/flying.m4a', true, 0.5); // Looping flight sound
+        loadSound('bgm', 'soundtrack.mp3', true, 0.3);
+        loadSound('coin', 'coinSound.mp3', false, 0.4);
+        loadSound('slide', 'sliding.mp3', false, 0.5);
+        loadSound('die', 'man-scream.mp3', false, 0.6);
+        loadSound('jump', 'jump.m4a', false, 0.5);
+        loadSound('flying', 'flying.m4a', true, 0.5); // Looping flight sound
     }
 
     playSound(name) {
@@ -172,7 +172,7 @@ class Game {
         const textureLoader = new THREE.TextureLoader();
 
         // Load Background Image
-        textureLoader.load('/bg.png', (texture) => {
+        textureLoader.load('bg.png', (texture) => {
             console.log('Background image loaded');
             this.scene.background = texture;
         }, undefined, (err) => {
@@ -208,7 +208,7 @@ class Game {
         // Jet Pack Asset (Power model)
         try {
             const gltf = await new Promise((resolve, reject) => {
-                gltfLoader.load('/power.glb', resolve, undefined, reject);
+                gltfLoader.load('power.glb', resolve, undefined, reject);
             });
             this.jetpackTemplate = gltf.scene;
             this.jetpackTemplate.scale.set(1.5, 1.5, 1.5);
@@ -234,7 +234,7 @@ class Game {
 
         try {
             const fbx = await new Promise((resolve, reject) => {
-                fbxLoader.load('/run.fbx', resolve, undefined, reject);
+                fbxLoader.load('run.fbx', resolve, undefined, reject);
             });
             this.player = fbx;
             this.player.scale.set(0.015, 0.015, 0.015);
@@ -261,35 +261,46 @@ class Game {
             }
 
             // Load Flying Animation Asset
-            const flyingFbx = await new Promise((resolve, reject) => {
-                fbxLoader.load('/Flying.fbx', resolve, undefined, reject);
-            });
-            if (flyingFbx.animations && flyingFbx.animations.length > 0) {
-                const clip = flyingFbx.animations[0];
-
-                // Track Path Fix: Ensure animation tracks match the player's bone hierarchy
-                // Sometimes FBX animations include the root node name which prevents playback on a different model
-                clip.tracks.forEach(track => {
-                    // If track is "SomeRoot/Hips.position", change to "Hips.position"
-                    const nameParts = track.name.split('.');
-                    const pathParts = nameParts[0].split('/');
-                    if (pathParts.length > 1) {
-                        track.name = pathParts[pathParts.length - 1] + '.' + nameParts[1];
-                    }
+            try {
+                const flyingFbx = await new Promise((resolve, reject) => {
+                    fbxLoader.load('Flying.fbx', resolve, undefined, (err) => {
+                        console.warn("Flying animation failed to load, will use fallback pose", err);
+                        resolve({ animations: [] }); // Resolve with empty so game continues
+                    });
                 });
+                if (flyingFbx.animations && flyingFbx.animations.length > 0) {
+                    const clip = flyingFbx.animations[0];
 
-                this.flyAction = this.mixer.clipAction(clip);
-                this.flyAction.setLoop(THREE.LoopRepeat);
-            }
+                    // Track Path Fix: Ensure animation tracks match the player's bone hierarchy
+                    // Sometimes FBX animations include the root node name which prevents playback on a different model
+                    clip.tracks.forEach(track => {
+                        // If track is "SomeRoot/Hips.position", change to "Hips.position"
+                        const nameParts = track.name.split('.');
+                        const pathParts = nameParts[0].split('/');
+                        if (pathParts.length > 1) {
+                            track.name = pathParts[pathParts.length - 1] + '.' + nameParts[1];
+                        }
+                    });
+
+                    this.flyAction = this.mixer.clipAction(clip);
+                    this.flyAction.setLoop(THREE.LoopRepeat);
+                }
+            } catch (e) { console.warn("Skip fly animation loading"); }
 
         } catch (error) {
             console.error('Error loading player:', error);
+            // Fallback for player
+            const geo = new THREE.BoxGeometry(1, 2, 1);
+            const mat = new THREE.MeshStandardMaterial({ color: 0x333333 });
+            this.player = new THREE.Mesh(geo, mat);
+            this.player.position.set(0, 1, 0);
+            this.scene.add(this.player);
         }
 
         // Load Track segments
         try {
             const gltf = await new Promise((resolve, reject) => {
-                gltfLoader.load('/track.glb', resolve, undefined, reject);
+                gltfLoader.load('track.glb', resolve, undefined, reject);
             });
 
             this.trackModel = gltf.scene;
@@ -312,12 +323,19 @@ class Game {
             }
         } catch (error) {
             console.error('Error loading track:', error);
+            // Minimal fallback: floor
+            const floorGeo = new THREE.PlaneGeometry(10, 1000);
+            floorGeo.rotateX(-Math.PI / 2);
+            const floorMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
+            const floor = new THREE.Mesh(floorGeo, floorMat);
+            this.scene.add(floor);
+            this.spacing = 20;
         }
 
         // Load Obstacle Model
         try {
             const gltf = await new Promise((resolve, reject) => {
-                gltfLoader.load('/Meshy_AI_A_single_broken_concr_0126215832_texture.glb', resolve, undefined, reject);
+                gltfLoader.load('Meshy_AI_A_single_broken_concr_0126215832_texture.glb', resolve, undefined, reject);
             });
             this.obstacleTemplate = gltf.scene;
             this.obstacleTemplate.scale.set(3, 3, 3);
@@ -333,7 +351,7 @@ class Game {
         // Load High Barrier (Archway) Model
         try {
             const gltf = await new Promise((resolve, reject) => {
-                gltfLoader.load('/Meshy_AI_A_floating_archway_ma_0127181511_texture.glb', resolve, undefined, reject);
+                gltfLoader.load('Meshy_AI_A_floating_archway_ma_0127181511_texture.glb', resolve, undefined, reject);
             });
             const model = gltf.scene;
             model.scale.set(3, 3, 3);
@@ -361,7 +379,7 @@ class Game {
         // Load Environment Model
         try {
             const gltf = await new Promise((resolve, reject) => {
-                gltfLoader.load('/Meshy_AI_A_stylized_forest_can_0126222443_texture.glb', resolve, undefined, reject);
+                gltfLoader.load('Meshy_AI_A_stylized_forest_can_0126222443_texture.glb', resolve, undefined, reject);
             });
             this.envTemplate = gltf.scene;
             this.envTemplate.scale.set(5, 5, 5);
