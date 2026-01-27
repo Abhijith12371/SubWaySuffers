@@ -77,7 +77,8 @@ class Game {
                 sound.setLoop(loop);
                 sound.setVolume(volume);
                 this.sounds[name] = sound;
-                if (loop) sound.play(); // Auto play music
+                // Don't auto-play yet to avoid AudioContext warnings
+                // if (loop) sound.play(); 
             });
         };
 
@@ -110,6 +111,10 @@ class Game {
         }
 
         this.startBtn.addEventListener('click', () => {
+            // Fix AudioContext warning: Resume context on user gesture
+            if (this.listener && this.listener.context.state === 'suspended') {
+                this.listener.context.resume();
+            }
             this.startGame();
         });
     }
@@ -137,6 +142,11 @@ class Game {
         this.jetpackTimer = 0;
         this.powerups.forEach(p => this.scene.remove(p));
         this.powerups = [];
+
+        // Start BGM on true game start (first click)
+        if (this.sounds && this.sounds['bgm'] && !this.sounds['bgm'].isPlaying) {
+            this.sounds['bgm'].play();
+        }
     }
 
     setupLights() {
@@ -184,17 +194,11 @@ class Game {
         };
 
         manager.onLoad = () => {
-            console.log('All assets loaded successfully');
-            if (loadingScreen) {
-                loadingScreen.classList.add('hidden');
-                // Auto-show start overlay if it was hidden
-                if (this.overlay) this.overlay.classList.remove('hidden');
-            }
+            console.log('Central Manager: Low-level assets ready');
         };
 
         manager.onError = (url) => {
             console.error('Error loading:', url);
-            // Don't block the game, just update info
             if (loadInfo) loadInfo.innerText = `ERROR LOADING ${url.split('/').pop()}`;
         };
 
@@ -442,6 +446,11 @@ class Game {
         } catch (error) {
             console.error('Error loading environment model:', error);
         }
+
+        // --- FINAL LOAD STEP ---
+        console.log('LOADER SEQUENCE COMPLETE');
+        if (loadingScreen) loadingScreen.classList.add('hidden');
+        if (this.overlay) this.overlay.classList.remove('hidden');
     }
 
     addScenery(track) {
