@@ -655,6 +655,65 @@ class Game {
             }
         });
 
+        // Mobile Touch Controls (Swipe detection)
+        let touchStartX = 0;
+        let touchStartY = 0;
+        const swipeThreshold = 50;
+
+        window.addEventListener('touchstart', (e) => {
+            touchStartX = e.changedTouches[0].screenX;
+            touchStartY = e.changedTouches[0].screenY;
+        }, { passive: true });
+
+        window.addEventListener('touchend', (e) => {
+            if (this.isGameOver || !this.isGameStarted) return;
+
+            const touchEndX = e.changedTouches[0].screenX;
+            const touchEndY = e.changedTouches[0].screenY;
+
+            const diffX = touchEndX - touchStartX;
+            const diffY = touchEndY - touchStartY;
+
+            // Horizontal Swipe
+            if (Math.abs(diffX) > Math.abs(diffY)) {
+                if (Math.abs(diffX) > swipeThreshold) {
+                    if (diffX < 0) {
+                        // Swipe Left
+                        if (this.currentLane > -1) {
+                            this.currentLane--;
+                            this.targetX = this.currentLane * this.laneWidth;
+                        }
+                    } else {
+                        // Swipe Right
+                        if (this.currentLane < 1) {
+                            this.currentLane++;
+                            this.targetX = this.currentLane * this.laneWidth;
+                        }
+                    }
+                }
+            }
+            // Vertical Swipe
+            else {
+                if (Math.abs(diffY) > swipeThreshold) {
+                    if (diffY < 0) {
+                        // Swipe Up (Jump)
+                        if (!this.isJumping && !this.isSliding) {
+                            this.isJumping = true;
+                            this.jumpVelocity = 0.7;
+                            this.playSound('jump');
+                        }
+                    } else {
+                        // Swipe Down (Slide)
+                        if (!this.isJumping && !this.isSliding) {
+                            this.isSliding = true;
+                            this.slideTimer = this.slideDuration;
+                            this.playSound('slide');
+                        }
+                    }
+                }
+            }
+        }, { passive: true });
+
         window.addEventListener('resize', () => {
             this.camera.aspect = window.innerWidth / window.innerHeight;
             this.camera.updateProjectionMatrix();
