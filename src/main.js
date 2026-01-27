@@ -188,8 +188,6 @@ class Game {
             metalness: 0.8,
             roughness: 0.2
         });
-        this.highBarrierGeo = new THREE.BoxGeometry(this.laneWidth, 2, 1);
-        this.highBarrierMat = new THREE.MeshStandardMaterial({ color: 0xff4400, emissive: 0x551100 });
         this.lowBarrierGeo = new THREE.BoxGeometry(2, 2.5, 1.5);
 
         // Coin Assets (Cached)
@@ -332,6 +330,34 @@ class Game {
             console.error('Error loading obstacle model:', error);
         }
 
+        // Load High Barrier (Archway) Model
+        try {
+            const gltf = await new Promise((resolve, reject) => {
+                gltfLoader.load('/Meshy_AI_A_floating_archway_ma_0127181511_texture.glb', resolve, undefined, reject);
+            });
+            const model = gltf.scene;
+            model.scale.set(3, 3, 3);
+
+            // Adjust pivot to bottom-center
+            const box = new THREE.Box3().setFromObject(model);
+            const size = box.getSize(new THREE.Vector3());
+            const center = box.getCenter(new THREE.Vector3());
+
+            // Re-center model relative to its own local origin but keep bottom at 0
+            // This makes placing it much easier (y=0 is the ground)
+            model.position.set(-center.x, -box.min.y, -center.z);
+
+            this.highBarrierTemplate = new THREE.Group();
+            this.highBarrierTemplate.add(model);
+
+            console.log(`Archway model loaded. Height: ${size.y.toFixed(2)}`);
+        } catch (error) {
+            console.error('Error loading archway model:', error);
+            // Fallback for high barrier
+            this.highBarrierGeo = new THREE.BoxGeometry(this.laneWidth, 2, 1);
+            this.highBarrierMat = new THREE.MeshStandardMaterial({ color: 0xff4400, emissive: 0x551100 });
+        }
+
         // Load Environment Model
         try {
             const gltf = await new Promise((resolve, reject) => {
@@ -401,10 +427,20 @@ class Game {
                 obstacle.scale.set(4, 4, 4);
                 obstacle.position.set(lane * this.laneWidth, 1.0, -200);
             } else if (type < 0.7) {
-                // High barrier (jump over)
-                // Use cached geometry/material
-                obstacle = new THREE.Mesh(this.highBarrierGeo, this.highBarrierMat);
-                obstacle.position.set(lane * this.laneWidth, 3.5, -200);
+                // High barrier (slide under)
+                if (this.highBarrierTemplate) {
+                    obstacle = this.highBarrierTemplate.clone();
+                    // Scale it so the top is just shorter than the character
+                    // We also ensure it's positioned on the ground (y=0)
+                    obstacle.scale.set(1.5, 1.2, 1.5); // Squash it vertically
+                    obstacle.position.set(lane * this.laneWidth, 0, -200);
+                    obstacle.userData = { isHighBarrier: true };
+                } else {
+                    // Fallback to box
+                    obstacle = new THREE.Mesh(this.highBarrierGeo, this.highBarrierMat);
+                    obstacle.position.set(lane * this.laneWidth, 1.5, -200); // Shorter fallback
+                    obstacle.userData = { isHighBarrier: true };
+                }
             } else {
                 // Low barrier (slide under)
                 obstacle.scale.set(3, 1.5, 3);
@@ -812,7 +848,14 @@ class Game {
                         break;
                     }
                 } else if (Math.abs(obstacle.position.x - this.player.position.x) < 2.0) {
-                    if (Math.abs(obstacle.position.y - (playerY + 1)) < 2.0) {
+                    // Check if it's a high barrier (must slide)
+                    if (obstacle.userData && obstacle.userData.isHighBarrier) {
+                        if (!this.isSliding) {
+                            this.playSound('die');
+                            this.gameOver();
+                            break;
+                        }
+                    } else if (Math.abs(obstacle.position.y - (playerY + 1)) < 2.0) {
                         this.playSound('die');
                         this.gameOver();
                         break;
