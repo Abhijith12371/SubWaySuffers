@@ -661,18 +661,27 @@ class Game {
         const swipeThreshold = 50;
 
         window.addEventListener('touchstart', (e) => {
-            touchStartX = e.changedTouches[0].screenX;
-            touchStartY = e.changedTouches[0].screenY;
-        }, { passive: true });
+            touchStartX = e.changedTouches[0].clientX;
+            touchStartY = e.changedTouches[0].clientY;
+        }, { passive: false });
+
+        window.addEventListener('touchmove', (e) => {
+            if (this.isGameStarted && !this.isGameOver) {
+                e.preventDefault();
+            }
+        }, { passive: false });
 
         window.addEventListener('touchend', (e) => {
             if (this.isGameOver || !this.isGameStarted) return;
 
-            const touchEndX = e.changedTouches[0].screenX;
-            const touchEndY = e.changedTouches[0].screenY;
+            const touchEndX = e.changedTouches[0].clientX;
+            const touchEndY = e.changedTouches[0].clientY;
 
             const diffX = touchEndX - touchStartX;
             const diffY = touchEndY - touchStartY;
+
+            // Log for debugging if needed (can be removed later)
+            // console.log(`Swipe: ${diffX}, ${diffY}`);
 
             // Horizontal Swipe
             if (Math.abs(diffX) > Math.abs(diffY)) {
@@ -712,7 +721,7 @@ class Game {
                     }
                 }
             }
-        }, { passive: true });
+        }, { passive: false });
 
         window.addEventListener('resize', () => {
             this.camera.aspect = window.innerWidth / window.innerHeight;
