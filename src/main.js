@@ -53,10 +53,10 @@ class Game {
     async init() {
         this.setupLights();
         this.setupCamera();
-        this.setupAudio(); // Move audio setup earlier to register loader
+        this.setupUI(); // Setup UI (and overlay ref) BEFORE loading assets
+        this.setupAudio();
         await this.loadAssets();
         this.setupControls();
-        this.setupUI();
         this.animate();
     }
 
@@ -663,43 +663,49 @@ class Game {
     }
 
     update() {
-        if (this.isGameOver || !this.isGameStarted) return;
-
         // Cap delta to prevent huge jumps if frame drops
         let delta = this.clock.getDelta();
         if (delta > 0.1) delta = 0.1;
 
+        if (this.isGameOver) return;
+
+        // Animation mixer updates even if game hasn't started (idle/ready animations)
         if (this.mixer) {
             this.mixer.update(delta);
-            if (this.runAction) {
-                // Adjust animation speed, but CLAMP it to prevent stutter
-                // Base speed 0.5 -> timeScale 0.8
-                // fast speed 1.5 -> timeScale 1.4
-                const targetScale = 0.5 + this.trackSpeed * 0.8;
-                this.runAction.timeScale = Math.min(targetScale, 1.5);
-            }
+        }
 
-            // Animation Switching Logic
-            if (this.isFlying) {
-                if (this.flyAction && !this.flyAction.isRunning()) {
-                    if (this.runAction) this.runAction.fadeOut(0.3);
-                    this.flyAction.reset().fadeIn(0.3).play();
-                }
-                // Tilt character forward for horizontal flight
-                this.player.rotation.x = THREE.MathUtils.lerp(this.player.rotation.x, -Math.PI / 2.2, 0.1);
-            } else {
-                if (this.runAction && !this.runAction.isRunning()) {
-                    if (this.flyAction) this.flyAction.fadeOut(0.3);
-                    this.runAction.reset().fadeIn(0.3).play();
-                }
-                // Return to vertical
-                this.player.rotation.x = THREE.MathUtils.lerp(this.player.rotation.x, 0, 0.1);
+        // Animation Switching Logic
+        if (this.isFlying) {
+            if (this.flyAction && !this.flyAction.isRunning()) {
+                if (this.runAction) this.runAction.fadeOut(0.3);
+                this.flyAction.reset().fadeIn(0.3).play();
             }
+            // Tilt character forward for horizontal flight
+            this.player.rotation.x = THREE.MathUtils.lerp(this.player.rotation.x, -Math.PI / 2.2, 0.1);
+        } else {
+            if (this.runAction && !this.runAction.isRunning()) {
+                if (this.flyAction) this.flyAction.fadeOut(0.3);
+                this.runAction.reset().fadeIn(0.3).play();
+            }
+            // Return to vertical
+            this.player.rotation.x = THREE.MathUtils.lerp(this.player.rotation.x, 0, 0.1);
+        }
 
-            // PIXEL FIX: Pin Hips bone to prevent root motion "stutter/restart"
-            if (this.hips) {
-                this.hips.position.z = 0;
-            }
+        // PIXEL FIX: Pin Hips bone to prevent root motion "stutter/restart"
+        if (this.hips) {
+            this.hips.position.z = 0;
+        }
+
+        // Don't run game logic if not started
+        if (!this.isGameStarted) {
+            if (this.runAction && !this.runAction.isRunning()) this.runAction.play();
+            return;
+        }
+
+        if (this.runAction) {
+            // Adjust animation speed based on track speed
+            const targetScale = 0.5 + this.trackSpeed * 0.8;
+            this.runAction.timeScale = Math.min(targetScale, 1.5);
         }
 
         // Update score
