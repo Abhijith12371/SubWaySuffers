@@ -104,8 +104,9 @@ class Game {
     }
 
     setupCamera() {
-        this.camera.position.set(0, 7, 15);
-        this.camera.lookAt(0, 2, -15);
+        // Immersive View: Closer and lower
+        this.camera.position.set(0, 4, 8);
+        this.camera.lookAt(0, 2, -10);
     }
 
     async loadAssets() {
@@ -534,8 +535,10 @@ class Game {
                 }
             });
 
-            // Camera follow (slightly behind)
-            this.camera.position.x = THREE.MathUtils.lerp(this.camera.position.x, this.player.position.x, 0.05);
+            // Camera follow (Immersive: tighter follow)
+            this.camera.position.x = THREE.MathUtils.lerp(this.camera.position.x, this.player.position.x, 0.1);
+            // Camera vertical follow for jumps (Dampened slightly to avoid motion sickness)
+            this.camera.position.y = THREE.MathUtils.lerp(this.camera.position.y, 4 + (this.player.position.y > 0 ? this.player.position.y * 0.4 : 0), 0.1);
         }
 
         this.checkCollisions();
