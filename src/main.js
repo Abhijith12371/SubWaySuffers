@@ -14,6 +14,7 @@ class Game {
         this.clock = new THREE.Clock();
         this.mixer = null;
         this.player = null;
+        this.hips = null; // To store root bone for root-motion fix
         this.tracks = [];
         this.trackSpeed = 0.5;
         this.laneWidth = 3;
@@ -46,7 +47,41 @@ class Game {
         await this.loadAssets();
         this.setupControls();
         this.setupUI();
+        this.setupAudio(); // Add Audio Setup
         this.animate();
+    }
+
+    setupAudio() {
+        const listener = new THREE.AudioListener();
+        this.camera.add(listener);
+
+        const audioLoader = new THREE.AudioLoader();
+        this.sounds = {};
+
+        // Helper to load sound
+        const loadSound = (name, path, loop = false, volume = 0.5) => {
+            const sound = new THREE.Audio(listener);
+            audioLoader.load(path, (buffer) => {
+                sound.setBuffer(buffer);
+                sound.setLoop(loop);
+                sound.setVolume(volume);
+                this.sounds[name] = sound;
+                if (loop) sound.play(); // Auto play music
+            });
+        };
+
+        loadSound('bgm', '/music.mp3', true, 0.3);
+        loadSound('coin', '/coinSound.mp3', false, 0.4);
+        loadSound('slide', '/sliding.mp3', false, 0.5);
+        loadSound('die', '/man-scream.mp3', false, 0.6);
+        // Using slide sound for jump for now as fallback, or just silent 'whoosh'
+    }
+
+    playSound(name) {
+        if (this.sounds && this.sounds[name]) {
+            if (this.sounds[name].isPlaying) this.sounds[name].stop();
+            this.sounds[name].play();
+        }
     }
 
     setupUI() {
@@ -137,7 +172,7 @@ class Game {
         this.lowBarrierGeo = new THREE.BoxGeometry(2, 2.5, 1.5);
 
         // Coin Assets (Cached)
-        this.coinGeo = new THREE.CylinderGeometry(0.6, 0.6, 0.1, 16);
+        this.coinGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.1, 16);
         this.coinGeo.rotateX(Math.PI / 2); // Make it face player
         this.coinMat = new THREE.MeshStandardMaterial({
             color: 0xffd700,
@@ -147,10 +182,10 @@ class Game {
             emissiveIntensity: 0.4
         });
 
-
-
-
-        // Load Player
+        // Pit Trap Assets (Cached)
+        this.pitGeo = new THREE.PlaneGeometry(10, 8);
+        this.pitGeo.rotateX(-Math.PI / 2); // Lay flat
+        this.pitMat = new THREE.MeshBasicMaterial({ color: 0x111111 }); // Dark Grey/Black
         try {
             const fbx = await new Promise((resolve, reject) => {
                 fbxLoader.load('/run.fbx', resolve, undefined, reject);
@@ -164,6 +199,14 @@ class Game {
             if (fbx.animations && fbx.animations.length > 0) {
                 console.log('Found animations:', fbx.animations.map(a => `${a.name} (${a.duration}s)`));
                 this.mixer = new THREE.AnimationMixer(this.player);
+
+                // Find and cache the Hips bone for root-motion pinning
+                this.player.traverse(child => {
+                    if (child.isBone && (child.name.toLowerCase().includes('hips') || child.name.toLowerCase().includes('root'))) {
+                        this.hips = child;
+                    }
+                });
+
                 // Use the first animation or find one named 'run'
                 const clip = fbx.animations.find(a => a.name.toLowerCase().includes('run')) || fbx.animations[0];
                 this.runAction = this.mixer.clipAction(clip);
@@ -274,7 +317,12 @@ class Game {
         const type = Math.random();
 
         let obstacle;
-        if (this.obstacleTemplate) {
+        // Pit Trap Chance (10%)
+        if (Math.random() < 0.1) {
+            obstacle = new THREE.Mesh(this.pitGeo, this.pitMat);
+            obstacle.position.set(0, 0.05, -200); // 0 x (all lanes), slightly above ground
+            obstacle.userData = { isPit: true }; // Mark as pit
+        } else if (this.obstacleTemplate) {
             obstacle = this.obstacleTemplate.clone();
 
             if (type < 0.4) {
@@ -388,9 +436,11 @@ class Game {
             } else if ((e.key === 'ArrowUp' || e.key === 'w' || e.key === ' ') && !this.isJumping && !this.isSliding) {
                 this.isJumping = true;
                 this.jumpVelocity = 0.7;
+                // No jump sound yet, maybe custom?
             } else if ((e.key === 'ArrowDown' || e.key === 's') && !this.isJumping && !this.isSliding) {
                 this.isSliding = true;
                 this.slideTimer = this.slideDuration;
+                this.playSound('slide');
             }
         });
 
@@ -404,12 +454,23 @@ class Game {
     update() {
         if (this.isGameOver || !this.isGameStarted) return;
 
-        const delta = this.clock.getDelta();
+        // Cap delta to prevent huge jumps if frame drops
+        let delta = this.clock.getDelta();
+        if (delta > 0.1) delta = 0.1;
+
         if (this.mixer) {
             this.mixer.update(delta);
             if (this.runAction) {
-                // Adjust animation speed to match track speed (base 0.5 -> timeScale 1.0)
-                this.runAction.timeScale = this.trackSpeed * 2.0;
+                // Adjust animation speed, but CLAMP it to prevent stutter
+                // Base speed 0.5 -> timeScale 0.8
+                // fast speed 1.5 -> timeScale 1.4
+                const targetScale = 0.5 + this.trackSpeed * 0.8;
+                this.runAction.timeScale = Math.min(targetScale, 1.5);
+            }
+
+            // PIXEL FIX: Pin Hips bone to prevent root motion "stutter/restart"
+            if (this.hips) {
+                this.hips.position.z = 0;
             }
         }
 
@@ -476,6 +537,7 @@ class Game {
                         this.scene.remove(coin);
                         this.coins.splice(i, 1);
                         this.collectedCoins++;
+                        this.playSound('coin');
 
                         // UI Update
                         if (this.coinScoreElement) {
@@ -526,15 +588,6 @@ class Game {
             // Lock player Z position (Y is handled by jump/slide)
             this.player.position.z = 0;
 
-            // Prevent root motion drift: traverse model and lock any bones that might be moving 
-            // the whole character (usually 'Hips' or the root mesh)
-            this.player.traverse(obj => {
-                if (obj.isBone && (obj.name.toLowerCase().includes('hips') || obj.name.toLowerCase().includes('root'))) {
-                    obj.position.x = 0;
-                    obj.position.z = 0;
-                }
-            });
-
             // Camera follow (Immersive: tighter follow)
             this.camera.position.x = THREE.MathUtils.lerp(this.camera.position.x, this.player.position.x, 0.1);
             // Camera vertical follow for jumps (Dampened slightly to avoid motion sickness)
@@ -542,6 +595,35 @@ class Game {
         }
 
         this.checkCollisions();
+    }
+
+    checkCollisions() {
+        if (!this.player) return;
+
+        // Optimized Collision for Obstacles
+        const playerY = this.player.position.y;
+
+        for (let i = 0; i < this.obstacles.length; i++) {
+            const obstacle = this.obstacles[i];
+
+            if (obstacle.position.z > -2 && obstacle.position.z < 2) {
+                // Pit Trap Logic
+                if (obstacle.userData && obstacle.userData.isPit) {
+                    // Must be on ground to die. If Jumping (Y > 1.0), safe.
+                    if (this.player.position.y < 1.0) {
+                        this.playSound('die');
+                        this.gameOver();
+                        break;
+                    }
+                } else if (Math.abs(obstacle.position.x - this.player.position.x) < 2.0) {
+                    if (Math.abs(obstacle.position.y - (playerY + 1)) < 2.0) {
+                        this.playSound('die');
+                        this.gameOver();
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     animate() {
