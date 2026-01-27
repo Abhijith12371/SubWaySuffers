@@ -22,10 +22,20 @@ class Game {
         this.isGameOver = false;
         this.isGameStarted = false;
 
+        // Jump and slide mechanics
+        this.isJumping = false;
+        this.isSliding = false;
+        this.jumpVelocity = 0;
+        this.gravity = -0.045;
+        this.slideTimer = 0;
+        this.slideDuration = 0.5;
+
         this.obstacles = [];
         this.score = 0;
         this.spawnTimer = 0;
         this.difficulty = 1;
+        this.coins = [];
+        this.collectedCoins = 0;
 
         this.init();
     }
@@ -87,8 +97,10 @@ class Game {
         this.scene.add(directionalLight);
 
         // Background and Fog
+        // Background and Fog
         this.scene.fog = new THREE.Fog(0x87ceeb, 20, 200);
-        this.scene.background = new THREE.Color(0x87ceeb);
+        // Background will be set in loadAssets if bg.png exists
+        // this.scene.background = new THREE.Color(0x87ceeb);
     }
 
     setupCamera() {
@@ -100,6 +112,40 @@ class Game {
         console.log('Loading assets...');
         const gltfLoader = new GLTFLoader();
         const fbxLoader = new FBXLoader();
+        const textureLoader = new THREE.TextureLoader();
+
+        // Load Background Image
+        textureLoader.load('/bg.png', (texture) => {
+            console.log('Background image loaded');
+            this.scene.background = texture;
+        }, undefined, (err) => {
+            console.warn('Could not load bg.png, using color fallback', err);
+            this.scene.background = new THREE.Color(0x87ceeb);
+        });
+
+        // Pre-allocate Geometries and Materials for Performance
+        this.commonBoxGeo = new THREE.BoxGeometry(2, 2.5, 1.5);
+        this.commonObstacleMat = new THREE.MeshStandardMaterial({
+            color: 0xff4400,
+            emissive: 0x992200,
+            metalness: 0.8,
+            roughness: 0.2
+        });
+        this.highBarrierGeo = new THREE.BoxGeometry(this.laneWidth, 2, 1);
+        this.highBarrierMat = new THREE.MeshStandardMaterial({ color: 0xff4400, emissive: 0x551100 });
+        this.lowBarrierGeo = new THREE.BoxGeometry(2, 2.5, 1.5);
+
+        // Coin Assets (Cached)
+        this.coinGeo = new THREE.CylinderGeometry(0.6, 0.6, 0.1, 16);
+        this.coinGeo.rotateX(Math.PI / 2); // Make it face player
+        this.coinMat = new THREE.MeshStandardMaterial({
+            color: 0xffd700,
+            metalness: 1.0,
+            roughness: 0.3,
+            emissive: 0xaa8800,
+            emissiveIntensity: 0.4
+        });
+
 
 
 
@@ -147,44 +193,168 @@ class Game {
             for (let i = 0; i < 12; i++) {
                 const track = this.trackModel.clone();
                 track.position.z = -i * this.spacing;
+                this.addScenery(track);
                 this.scene.add(track);
                 this.tracks.push(track);
             }
         } catch (error) {
             console.error('Error loading track:', error);
         }
+
+        // Load Obstacle Model
+        try {
+            const gltf = await new Promise((resolve, reject) => {
+                gltfLoader.load('/Meshy_AI_A_single_broken_concr_0126215832_texture.glb', resolve, undefined, reject);
+            });
+            this.obstacleTemplate = gltf.scene;
+            this.obstacleTemplate.scale.set(3, 3, 3);
+            // Center the model
+            const box = new THREE.Box3().setFromObject(this.obstacleTemplate);
+            const center = box.getCenter(new THREE.Vector3());
+            this.obstacleTemplate.position.sub(center);
+            console.log('Obstacle model loaded');
+        } catch (error) {
+            console.error('Error loading obstacle model:', error);
+        }
+
+        // Load Environment Model
+        try {
+            const gltf = await new Promise((resolve, reject) => {
+                gltfLoader.load('/Meshy_AI_A_stylized_forest_can_0126222443_texture.glb', resolve, undefined, reject);
+            });
+            this.envTemplate = gltf.scene;
+            this.envTemplate.scale.set(5, 5, 5);
+
+            // Center the environment model !!!
+            const box = new THREE.Box3().setFromObject(this.envTemplate);
+            const size = box.getSize(new THREE.Vector3());
+            const center = box.getCenter(new THREE.Vector3());
+            this.envTemplate.position.sub(center);
+
+            console.log(`Env Model Loaded. Size: ${size.x.toFixed(2)} x ${size.y.toFixed(2)} x ${size.z.toFixed(2)}`);
+
+            // Pre-scale if it's tiny
+            // If height is less than 1 unit, it's likely microscopic (cm/mm scale issue)
+            if (size.y < 1) {
+                console.log('Model is tiny, applying base scale 10');
+                this.envTemplate.scale.set(10, 10, 10);
+            } else {
+                this.envTemplate.scale.set(5, 5, 5);
+            }
+        } catch (error) {
+            console.error('Error loading environment model:', error);
+        }
+    }
+
+    addScenery(track) {
+        // Track segments are scaled by 15. Create a container for scenery that we will 'un-scale'
+        const sceneryGroup = new THREE.Group();
+        sceneryGroup.scale.set(1 / 15, 1 / 15, 1 / 15);
+        track.add(sceneryGroup);
+
+        // Add forest environment on both sides
+        if (this.envTemplate) {
+            for (let i = 0; i < 4; i++) {
+                const side = (i % 2 === 0) ? 1 : -1;
+                const zPos = (Math.random() - 0.5) * this.trackLength;
+                const forest = this.envTemplate.clone();
+                // Match the scale and position logic
+                forest.scale.set(2.5, 2.5, 2.5);
+                forest.position.set(side * 25, 0, zPos * 15);
+                forest.rotation.y = Math.random() * Math.PI * 2;
+                sceneryGroup.add(forest);
+
+            }
+        }
     }
 
     spawnObstacle() {
         const lane = Math.floor(Math.random() * 3) - 1;
-        const geo = new THREE.BoxGeometry(2, 2.5, 1.5);
-        const mat = new THREE.MeshStandardMaterial({
-            color: 0xff4400,
-            emissive: 0x992200,
-            metalness: 0.8,
-            roughness: 0.2
-        });
-        const obstacle = new THREE.Mesh(geo, mat);
+        const type = Math.random();
 
-        obstacle.position.set(lane * this.laneWidth, 1.25, -200);
+        let obstacle;
+        if (this.obstacleTemplate) {
+            obstacle = this.obstacleTemplate.clone();
+
+            if (type < 0.4) {
+                // Standard obstacle
+                obstacle.scale.set(4, 4, 4);
+                obstacle.position.set(lane * this.laneWidth, 1.0, -200);
+            } else if (type < 0.7) {
+                // High barrier (jump over)
+                // Use cached geometry/material
+                obstacle = new THREE.Mesh(this.highBarrierGeo, this.highBarrierMat);
+                obstacle.position.set(lane * this.laneWidth, 3.5, -200);
+            } else {
+                // Low barrier (slide under)
+                obstacle.scale.set(3, 1.5, 3);
+                obstacle.position.set(lane * this.laneWidth, 0.4, -200);
+            }
+        } else {
+            // Fallback to box if model not loaded - USE CACHED
+            obstacle = new THREE.Mesh(this.commonBoxGeo, this.commonObstacleMat);
+            obstacle.position.set(lane * this.laneWidth, 1.25, -200);
+        }
+
         this.scene.add(obstacle);
         this.obstacles.push(obstacle);
+    }
+
+    spawnCoins() {
+        // 30% chance to spawn a coin group instead of nothing (separate from obstacles)
+        if (Math.random() > 0.3) return;
+
+        const lane = Math.floor(Math.random() * 3) - 1;
+        const zStart = -200;
+
+        // Spawn a line of 3-5 coins
+        const count = 3 + Math.floor(Math.random() * 3);
+        const yPos = Math.random() > 0.5 ? 1.0 : 3.5; // Ground or Air (jump to collect)
+
+        for (let i = 0; i < count; i++) {
+            const coin = new THREE.Mesh(this.coinGeo, this.coinMat);
+            coin.position.set(lane * this.laneWidth, yPos, zStart - (i * 3));
+
+            this.scene.add(coin);
+            this.coins.push(coin);
+        }
     }
 
     checkCollisions() {
         if (!this.player) return;
 
-        const playerBox = new THREE.Box3().setFromObject(this.player);
-        // Slightly shrink player box for more forgiving collisions
-        playerBox.expandByScalar(-0.2);
+        // Optimized Collision: Check distance instead of computing Box3 every frame
+        const playerLane = this.currentLane; // -1, 0, 1
+        const playerZ = this.player.position.z; // usually 0
+        const playerY = this.player.position.y; // 0 to ~2-3 when jumping
 
         for (let i = 0; i < this.obstacles.length; i++) {
             const obstacle = this.obstacles[i];
-            const obstacleBox = new THREE.Box3().setFromObject(obstacle);
 
-            if (playerBox.intersectsBox(obstacleBox)) {
-                this.gameOver();
-                break;
+            // 1. Z-Depth Check (Are we close enough?)
+            // Obstacles move from -200 towards +20. Player is at 0.
+            if (obstacle.position.z > -2 && obstacle.position.z < 2) {
+
+                // 2. Lane Check (Are we in the same lane?)
+                // Helper to find obstacle lane based on X position
+                // Lane widths are 3. Lane centers: -3, 0, 3.
+                // We can just check abs difference in X.
+                if (Math.abs(obstacle.position.x - this.player.position.x) < 2.0) {
+
+                    // 3. Height Check (Is collision avoidable by jumping/sliding?)
+                    // This depends on obstacle type.
+                    // For now, let's assume any overlap is a hit unless jump/slide logic handles it.
+                    // Standard (y=1): Hits if playerY < 2?
+                    // High (y=3.5): Hits if playerY > 1 (Jumping hits it? No, High barrier needs slide?)
+                    // Low (y=0.4): Hits if not jumping?
+
+                    // Simplified: Just use a vertical distance check
+                    // Player center is roughly y=1. Obstacle center varies.
+                    if (Math.abs(obstacle.position.y - (playerY + 1)) < 2.0) {
+                        this.gameOver();
+                        break;
+                    }
+                }
             }
         }
     }
@@ -214,6 +384,12 @@ class Game {
                     this.currentLane++;
                     this.targetX = this.currentLane * this.laneWidth;
                 }
+            } else if ((e.key === 'ArrowUp' || e.key === 'w' || e.key === ' ') && !this.isJumping && !this.isSliding) {
+                this.isJumping = true;
+                this.jumpVelocity = 0.7;
+            } else if ((e.key === 'ArrowDown' || e.key === 's') && !this.isJumping && !this.isSliding) {
+                this.isSliding = true;
+                this.slideTimer = this.slideDuration;
             }
         });
 
@@ -259,6 +435,7 @@ class Game {
         this.spawnTimer += delta;
         if (this.spawnTimer > 1.5 / this.trackSpeed) {
             this.spawnObstacle();
+            this.spawnCoins(); // Spawn coins!
             this.spawnTimer = 0;
         }
 
@@ -273,12 +450,79 @@ class Game {
             }
         }
 
+        // Move and Animate Coins
+        const playerY = this.player ? this.player.position.y : 0;
+
+        for (let i = this.coins.length - 1; i >= 0; i--) {
+            const coin = this.coins[i];
+            coin.position.z += this.trackSpeed;
+            coin.rotation.y += delta * 3; // Spin animation
+
+            // Remove if passed
+            if (coin.position.z > 20) {
+                this.scene.remove(coin);
+                this.coins.splice(i, 1);
+                continue;
+            }
+
+            // Coin Collection Logic
+            if (coin.position.z > -1 && coin.position.z < 1) { // Z check
+                // X check (Lane width is 3)
+                if (Math.abs(coin.position.x - this.player.position.x) < 1.0) {
+                    // Y Check (Coin is 1.0 or 3.5)
+                    if (Math.abs(coin.position.y - (playerY + 1)) < 2.0) {
+                        // Collect!
+                        this.scene.remove(coin);
+                        this.coins.splice(i, 1);
+                        this.collectedCoins++;
+
+                        // UI Update
+                        if (this.coinScoreElement) {
+                            this.coinScoreElement.innerText = `Coins: ${this.collectedCoins}`;
+                        } else {
+                            // Try to find element again or log
+                            const el = document.getElementById('coin-score');
+                            if (el) {
+                                this.coinScoreElement = el;
+                                this.coinScoreElement.innerText = `Coins: ${this.collectedCoins}`;
+                            } else {
+                                console.log('Coin collected:', this.collectedCoins);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Jump Physics
+        if (this.isJumping) {
+            this.player.position.y += this.jumpVelocity;
+            this.jumpVelocity += this.gravity;
+            if (this.player.position.y <= 0) {
+                this.player.position.y = 0;
+                this.isJumping = false;
+                this.jumpVelocity = 0;
+            }
+        }
+
+        // Slide Physics
+        if (this.isSliding) {
+            this.slideTimer -= delta;
+            // Procedural slide: squash the player
+            this.player.scale.y = 0.0075;
+            this.player.position.y = 0;
+            if (this.slideTimer <= 0) {
+                this.isSliding = false;
+                this.player.scale.y = 0.015;
+            }
+        } else if (!this.isJumping) {
+            this.player.scale.y = 0.015;
+        }
+
         // Smooth lane switching
         if (this.player) {
             this.player.position.x = THREE.MathUtils.lerp(this.player.position.x, this.targetX, 0.15);
-            
-            // Lock player to origin (X is handled by lane switching)
-            this.player.position.y = 0;
+
+            // Lock player Z position (Y is handled by jump/slide)
             this.player.position.z = 0;
 
             // Prevent root motion drift: traverse model and lock any bones that might be moving 
